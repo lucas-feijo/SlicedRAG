@@ -1,0 +1,3 @@
+[submodule "SliceGPTModifications"]
+	path = SliceGPTModifications
+	url = https://github.com/luckyLacchin/SliceGPTModifications
