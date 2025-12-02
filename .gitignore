@@ -1,5 +1,6 @@
 .idea/*
 
 data/*
+experiments/results/*
 
 notebooks/eval_baseline.ipynb
