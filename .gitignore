@@ -1,6 +1,9 @@
 .idea/*
 
 data/*
+!data/.gitkeep
+
 experiments/results/*
+!experiments/results/.gitkeep
 
 notebooks/eval_baseline.ipynb
