@@ -1,1 +1,5 @@
 .idea/*
+
+data/*
+
+notebooks/eval_baseline.ipynb
