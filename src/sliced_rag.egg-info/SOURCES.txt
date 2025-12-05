@@ -1,0 +1,15 @@
+.gitignore
+.gitmodules
+README.md
+pyproject.toml
+data/.gitkeep
+experiments/results/.gitkeep
+notebooks/SliceGPTColab.ipynb
+notebooks/eval_baseline.ipynb
+notebooks/evaluation.ipynb
+src/sliced_rag/__init__.py
+src/sliced_rag/evaluation.py
+src/sliced_rag.egg-info/PKG-INFO
+src/sliced_rag.egg-info/SOURCES.txt
+src/sliced_rag.egg-info/dependency_links.txt
+src/sliced_rag.egg-info/top_level.txt
