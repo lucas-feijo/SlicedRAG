@@ -1,1 +1,14 @@
 # TODO: fill this out to make repo installable
+
+[build-system]
+requires = ["setuptools>=42.0.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sliced_rag"
+version = 0.0.1
+description = "comparison of datasets for SliceGPT"
+authors = [
+    {name = "Gabriele Lacchin"},
+    {name = "Lucas Feijó"}
+]

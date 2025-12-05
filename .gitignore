@@ -1,5 +1,7 @@
 .idea/*
 
+.Trash*
+
 data/*
 !data/.gitkeep
 
