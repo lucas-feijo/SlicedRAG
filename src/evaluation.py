@@ -40,13 +40,13 @@ def get_logger():
 
 
 def eval(args):
-	"""
-	(Based on SliceGPT's run_lm_eval.py)
-	Evaluate a sliced model using LM Evaluation Harness
-	
-	args:
-	  - "model": HuggingFace model name, e.g. "facebook/opt-125m"
-	  - "sliced_model_path": path to sliced checkpoint dir
+    """
+    (Based on SliceGPT's run_lm_eval.py)
+    Evaluate a sliced model using LM Evaluation Harness
+    
+    args:
+      - "model": HuggingFace model name, e.g. "facebook/opt-125m"
+      - "sliced_model_path": path to sliced checkpoint dir
       - "sparsity": float, e.g. 0.25
       - "round_interval": int or None (optional)
       - "batch_size": int
@@ -55,68 +55,170 @@ def eval(args):
       - "limit": int or None
       - "save_dir": output directory for results
 
-	:param args: argument dict
-	"""
-     
-	logger = get_logger()
-	logger.info("Running Evaluation")
+    :param args: argument dict
+    """
 
-	logger.info(
-		f"Loading sliced {args["model"]} from {args["sliced_model_path"]} "
-		f"with sparsity {args["sparsity"]}"
-		)
-	
-	model_adapter, tokenizer = hf_utils.load_sliced_model(
-		args["model"],
-		args["sliced_model_path"],
-		sparsity=args["sparsity"],
-		token=None,
-		round_interval=args.get(["round_interval"], None),
-	)
+    logger = get_logger()
+    logger.info("Running Evaluation")
 
-	if hasattr(model_adapter.model, "tie_weights"):
-		model_adapter.model.tie_weights = lambda: None
+    logger.info(
+        f"Loading sliced {args["model"]} from {args["sliced_model_path"]} "
+        f"with sparsity {args["sparsity"]}"
+        )
+    
+    model_adapter, tokenizer = hf_utils.load_sliced_model(
+        args["model"],
+        args["sliced_model_path"],
+        sparsity=args["sparsity"],
+        token=None,
+        round_interval=args.get(["round_interval"], None),
+    )
 
-	model_adapter.model.to(config.device)
+    if hasattr(model_adapter.model, "tie_weights"):
+        model_adapter.model.tie_weights = lambda: None
 
-	hflm = HFLM(
-		pretrained=model_adapter.model,
-		tokenizer=tokenizer,
-		batch_size=args["batch_size"]
-		)
+    model_adapter.model.to(config.device)
 
-	if args["tasks"] is None:
-		task_names = tasks.ALL_TASKS
-	else:
-		task_names = lm_eval_utils.pattern_match(args["tasks"], ALL_TASKS)
+    hflm = HFLM(
+        pretrained=model_adapter.model,
+        tokenizer=tokenizer,
+        batch_size=args["batch_size"]
+        )
 
-	logger.info(f"Selected Tasks: {task_names}")
+    if args["tasks"] is None:
+        task_names = tasks.ALL_TASKS
+    else:
+        task_names = lm_eval_utils.pattern_match(args["tasks"], ALL_TASKS)
 
-	results = lm_eval.simple_evaluate(
-		hflm,
-		tasks=task_names,
-		num_fewshot=args["num_fewshot"],
-		batch_size=args["batch_size"],
-		limit=args["limit"],
-		write_out=True,
-		log_samples=True
-		)
+    logger.info(f"Selected Tasks: {task_names}")
 
-	logger.info("Results:")
-	logger.info(results)
+    results = lm_eval.simple_evaluate(
+        hflm,
+        tasks=task_names,
+        num_fewshot=args["num_fewshot"],
+        batch_size=args["batch_size"],
+        limit=args["limit"],
+        write_out=True,
+        log_samples=True
+        )
 
-	os.makedirs(args["save_dir"], exist_ok=True)
+    logger.info("Results:")
+    logger.info(results)
 
-	sparsity_tag = f"{args["sparsity"]:.2f}"
-	result_filename = os.path.join(
-		args["save_dir"],
-		f"results_s{args["sparsity"]:.2f}_{"_".join(task_names)}.json"
-	)
-	
-	with open(result_filename, "w") as f:
-		json.dump(results, f, indent=2)
+    os.makedirs(args["save_dir"], exist_ok=True)
 
-	logger.info(f"Saved results to {result_filename}")
+    sparsity_tag = f"{args["sparsity"]:.2f}"
+    result_filename = os.path.join(
+        args["save_dir"],
+        f"results_s{args["sparsity"]:.2f}_{"_".join(task_names)}.json"
+    )
+    
+    with open(result_filename, "w") as f:
+        json.dump(results, f, indent=2)
 
-	return results
+    logger.info(f"Saved results to {result_filename}")
+
+    return results
+
+
+def eval_baseline(args):
+    """
+    Run LM Evaluation Harness on either:
+      - a sliced (pruned) model, if 'sliced_model_path' is provided
+      - or a dense HF model, if not.
+    """
+    logger = get_logger()
+    logger.info("Running Evaluation")
+
+    use_sliced = args.get("sliced_model_path") is not None and args.get("sparsity", 0.0) > 0.0
+
+    if use_sliced:
+        # ---------- SLICED MODEL BRANCH ----------
+        logger.info(
+            f"Loading SLICED model {args['model']} from {args['sliced_model_path']} "
+            f"with sparsity {args['sparsity']}"
+        )
+
+        model_adapter, tokenizer = hf_utils.load_sliced_model(
+            args["model"],
+            args["sliced_model_path"],
+            sparsity=args["sparsity"],
+            token=None,
+            round_interval=args.get("round_interval", None),
+        )
+
+        # For sliced models, disable weight tying
+        if hasattr(model_adapter.model, "tie_weights"):
+            model_adapter.model.tie_weights = lambda *x, **kw: None
+
+        model_adapter.model.to(config.device)
+
+        hflm = HFLM(
+            pretrained=model_adapter.model,
+            tokenizer=tokenizer,
+            batch_size=args["batch_size"],
+        )
+
+    else:
+        # ---------- DENSE BASELINE BRANCH ----------
+        logger.info(
+            f"Loading DENSE baseline model {args['model']} directly from HF hub"
+        )
+
+        # Here we let LM Eval Harness load the model & tokenizer itself
+        hflm = HFLM(
+            pretrained=args["model"],
+            batch_size=args["batch_size"],
+        )
+
+    # ---------- Task selection ----------
+    if args["tasks"] is None:
+        logger.warning(
+            "args['tasks'] is None -> using ALL_TASKS. "
+            "This may be very slow / memory-heavy."
+        )
+        task_names = tasks.ALL_TASKS
+    else:
+        if isinstance(args["tasks"], str):
+            patterns = [t.strip() for t in args["tasks"].split(",") if t.strip()]
+        else:
+            patterns = args["tasks"]
+        task_names = lm_eval_utils.pattern_match(patterns, ALL_TASKS)
+
+    logger.info(f"Selected Tasks: {task_names}")
+
+    # ---------- Run evaluation ----------
+    results = lm_eval.simple_evaluate(
+        hflm,
+        tasks=task_names,
+        num_fewshot=args["num_fewshot"],
+        batch_size=args["batch_size"],
+        limit=args["limit"],
+        write_out=True,
+        log_samples=False,
+    )
+
+    logger.info("Results (metrics only):")
+    logger.info(results["results"])
+
+
+    # ---------- Save results ----------
+    os.makedirs(args["save_dir"], exist_ok=True)
+
+    # Use sparsity=0.0 if not present, so filenames still make sense
+    sparsity_val = float(args.get("sparsity", 0.0))
+    sparsity_tag = f"{sparsity_val:.2f}"
+
+    result_path = os.path.join(
+        args["save_dir"],
+        f"results_s{sparsity_tag}_{'_'.join(task_names)}_light.json",
+    )
+
+    with open(result_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    logger.info(f"Saved results to {result_path}")
+
+    return results
+
 
