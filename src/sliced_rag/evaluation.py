@@ -14,6 +14,15 @@ from lm_eval.tasks import initialize_tasks
 from slicegpt import gpu_utils, hf_utils, utils
 from slicegpt.config import config
 
+import os
+import json
+import torch
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import evaluate
+from tqdm import tqdm
+
+
 logging.basicConfig(
     level=logging.DEBUG,
     stream=sys.stdout,
@@ -220,5 +229,157 @@ def eval_baseline(args):
     logger.info(f"Saved results to {result_path}")
 
     return results
+
+
+def run_squad1_evaluation(
+    model_name="facebook/opt-125m",
+    limit=100,
+    max_new_tokens=32,
+    save_dir="../../experiments/results/",
+    save_name="results_squadv1_manual.json",
+    device=None,
+):
+    """
+    Run a manual SQuAD1.1 evaluation using HF transformers.
+    
+    Parameters
+    ----------
+    model_name : str
+        HuggingFace model ID, e.g. "facebook/opt-125m".
+    limit : int or None
+        Number of SQuAD validation examples to evaluate (None = full dataset).
+    max_new_tokens : int
+        Maximum number of tokens for generation.
+    save_dir : str
+        Directory where results will be saved.
+    save_name : str
+        Filename of the output JSON.
+    device : str or None
+        Override device (e.g. "cpu" or "cuda"). If None, auto-detect.
+    
+    Returns
+    -------
+    dict
+        Metrics dictionary with EM and F1.
+    """
+
+    # ----------------------------
+    # Detect device
+    # ----------------------------
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # ----------------------------
+    # Load tokenizer & model
+    # ----------------------------
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    model.eval()
+
+    # OPT models often have no padding token → use EOS
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    # ----------------------------
+    # Load SQuAD validation set
+    # ----------------------------
+    dataset = load_dataset("squad", split="validation")
+
+    if limit is not None:
+        dataset = dataset.select(range(limit))
+
+    print(f"Evaluating on {len(dataset)} examples")
+
+    predictions = []
+    references = []
+
+    # ----------------------------
+    # Loop over examples
+    # ----------------------------
+    for i, doc in enumerate(tqdm(dataset)):
+        prompt = (
+            "Context: " + doc["context"]
+            + "\nQuestion: " + doc["question"]
+            + "\nAnswer:"
+        )
+
+        inputs = tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024,
+        ).to(device)
+
+        with torch.no_grad():
+            output = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=0.0,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+
+        # Extract only generated tokens
+        generated = output[0, inputs["input_ids"].shape[1]:]
+        answer_text = tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+        # DEBUG: print first 5 examples
+        if i < 5:
+            print("\n===== DEBUG EXAMPLE =====")
+            print("Q:", doc["question"])
+            print("GT:", doc["answers"]["text"])
+            print("PRED:", repr(answer_text))
+
+        predictions.append({
+            "id": doc["id"],
+            "prediction_text": answer_text,
+        })
+
+        references.append({
+            "id": doc["id"],
+            "answers": doc["answers"],
+        })
+
+    # ----------------------------
+    # Compute SQuAD metrics
+    # ----------------------------
+    metric = evaluate.load("squad")
+    scores = metric.compute(predictions=predictions, references=references)
+
+    print("\n=== FINAL SCORES ===")
+    print(scores)
+
+    # ----------------------------
+    # Save results
+    # ----------------------------
+    os.makedirs(save_dir, exist_ok=True)
+    out_path = os.path.join(save_dir, save_name)
+
+    with open(out_path, "w") as f:
+        json.dump({
+            "results": scores,
+            "num_examples": len(dataset),
+            "model": model_name,
+            "max_new_tokens": max_new_tokens,
+        }, f, indent=2)
+
+    print(f"\nSaved results to: {out_path}\n")
+
+    return scores
+
+'''
+How to call the evalsquad function:
+
+run_squad1_evaluation(
+    model_name="facebook/opt-125m",
+    limit=100,
+    max_new_tokens=16,
+    save_dir="../../experiments/results/",
+    save_name="opt125m_squadv1.json"
+)
+
+'''
+
 
 
