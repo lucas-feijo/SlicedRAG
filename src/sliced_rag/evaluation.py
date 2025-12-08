@@ -382,4 +382,156 @@ run_squad1_evaluation(
 '''
 
 
+def run_squad2_evaluation(
+    model_name="facebook/opt-125m",
+    limit=100,
+    max_new_tokens=32,
+    save_dir="../../experiments/results/",
+    save_name="results_squadv2_manual.json",
+    device=None,
+):
+    """
+    Run a manual SQuAD2.0 evaluation using HF transformers.
+
+    Parameters
+    ----------
+    model_name : str
+        HuggingFace model ID, e.g. "facebook/opt-125m".
+    limit : int or None
+        Number of SQuAD v2 validation examples to evaluate (None = full dataset).
+    max_new_tokens : int
+        Maximum number of tokens for generation.
+    save_dir : str
+        Directory where results will be saved.
+    save_name : str
+        Filename of the output JSON.
+    device : str or None
+        Override device (e.g. "cpu" or "cuda"). If None, auto-detect.
+
+    Returns
+    -------
+    dict
+        Metrics dictionary with EM and F1 for SQuAD2.0.
+    """
+
+    # ----------------------------
+    # Detect device
+    # ----------------------------
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # ----------------------------
+    # Load tokenizer & model
+    # ----------------------------
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    model.eval()
+
+    # OPT models often have no padding token → use EOS
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    # ----------------------------
+    # Load SQuAD2.0 validation set
+    # ----------------------------
+    dataset = load_dataset("squad_v2", split="validation")
+
+    if limit is not None:
+        dataset = dataset.select(range(limit))
+
+    print(f"Evaluating on {len(dataset)} examples")
+
+    predictions = []
+    references = []
+
+    # ----------------------------
+    # Loop over examples
+    # ----------------------------
+    for i, doc in enumerate(tqdm(dataset)):
+        # For SQuAD v2 we explicitly allow no-answer
+        prompt = (
+            "Context: " + doc["context"]
+            + "\nQuestion: " + doc["question"]
+            + "\nIf the question cannot be answered from the context, answer with 'unanswerable'."
+            + "\nAnswer:"
+        )
+
+        inputs = tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024,
+        ).to(device)
+
+        with torch.no_grad():
+            output = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=0.0,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+
+        # Extract only generated tokens
+        generated = output[0, inputs["input_ids"].shape[1]:]
+        raw_answer = tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+        # Simple heuristic: interpret "unanswerable" as no-answer (empty string)
+        raw_lower = raw_answer.lower()
+        if raw_lower.startswith("unanswerable"):
+            pred_text = ""
+        else:
+            pred_text = raw_answer
+
+        # DEBUG: print first 5 examples
+        if i < 5:
+            print("\n===== DEBUG EXAMPLE =====")
+            print("Q:", doc["question"])
+            print("GT answers:", doc["answers"]["text"])
+            print("is_impossible:", doc["is_impossible"])
+            print("RAW PRED:", repr(raw_answer))
+            print("PRED USED:", repr(pred_text))
+
+        predictions.append({
+            "id": doc["id"],
+            "prediction_text": pred_text,
+            # required for squad_v2 metric, even if we don't model it
+            "no_answer_probability": 0.0,
+        })
+
+        references.append({
+            "id": doc["id"],
+            "answers": doc["answers"],  # may be empty if is_impossible=True
+        })
+
+    # ----------------------------
+    # Compute SQuAD v2 metrics
+    # ----------------------------
+    metric = evaluate.load("squad_v2")
+    scores = metric.compute(predictions=predictions, references=references)
+
+    print("\n=== FINAL SQuAD v2 SCORES ===")
+    print(scores)
+
+    # ----------------------------
+    # Save results
+    # ----------------------------
+    os.makedirs(save_dir, exist_ok=True)
+    out_path = os.path.join(save_dir, save_name)
+
+    with open(out_path, "w") as f:
+        json.dump({
+            "results": scores,
+            "num_examples": len(dataset),
+            "model": model_name,
+            "max_new_tokens": max_new_tokens,
+        }, f, indent=2)
+
+    print(f"\nSaved results to: {out_path}\n")
+
+    return scores
+
+
+
 
