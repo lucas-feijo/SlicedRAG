@@ -9,7 +9,6 @@ from lm_eval import tasks
 from lm_eval import utils as lm_eval_utils
 from lm_eval.api.registry import ALL_TASKS
 from lm_eval.models.huggingface import HFLM
-from lm_eval.tasks import initialize_tasks
 
 from slicegpt import gpu_utils, hf_utils, utils
 from slicegpt.config import config
@@ -52,7 +51,7 @@ def eval(args):
     """
     (Based on SliceGPT's run_lm_eval.py)
     Evaluate a sliced model using LM Evaluation Harness
-    
+
     args:
       - "model": HuggingFace model name, e.g. "facebook/opt-125m"
       - "sliced_model_path": path to sliced checkpoint dir
@@ -74,7 +73,7 @@ def eval(args):
         f"Loading sliced {args["model"]} from {args["sliced_model_path"]} "
         f"with sparsity {args["sparsity"]}"
         )
-    
+
     model_adapter, tokenizer = hf_utils.load_sliced_model(
         args["model"],
         args["sliced_model_path"],
@@ -106,9 +105,9 @@ def eval(args):
         tasks=task_names,
         num_fewshot=args["num_fewshot"],
         batch_size=args["batch_size"],
-        limit=args["limit"],
+        limit=args.get("limit", None),
         write_out=True,
-        log_samples=True
+        log_samples=args.get("log_samples", False)
         )
 
     logger.info("Results:")
@@ -121,7 +120,7 @@ def eval(args):
         args["save_dir"],
         f"results_s{args["sparsity"]:.2f}_{"_".join(task_names)}.json"
     )
-    
+
     with open(result_filename, "w") as f:
         json.dump(results, f, indent=2)
 
@@ -241,7 +240,7 @@ def run_squad1_evaluation(
 ):
     """
     Run a manual SQuAD1.1 evaluation using HF transformers.
-    
+
     Parameters
     ----------
     model_name : str
@@ -256,7 +255,7 @@ def run_squad1_evaluation(
         Filename of the output JSON.
     device : str or None
         Override device (e.g. "cpu" or "cuda"). If None, auto-detect.
-    
+
     Returns
     -------
     dict
