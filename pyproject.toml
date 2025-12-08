@@ -10,6 +10,9 @@ authors = [
     {name = "Gabriele Lacchin"},
     {name = "Lucas Feijó"}
 ]
+dependencies = [
+    "pandas"
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
