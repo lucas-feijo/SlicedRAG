@@ -11,7 +11,8 @@ authors = [
     {name = "Lucas Feijó"}
 ]
 dependencies = [
-    "pandas"
+    "pandas",
+    "matplotlib"
 ]
 
 [tool.setuptools.packages.find]
