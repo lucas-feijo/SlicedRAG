@@ -40,7 +40,10 @@ def load_sparsity_eval_results(base_directory,
         with open(file_path, "r") as f:
             data = json.load(f)
 
-        metrics = data[task]
+        try:
+            metrics = data[task]
+        except KeyError:
+            metrics = data["results"][task]
 
         row = {"sparsity": sparsity}
         for key, value in metrics.items():
