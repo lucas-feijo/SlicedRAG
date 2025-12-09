@@ -488,7 +488,6 @@ def run_squad2_evaluation(
             print("\n===== DEBUG EXAMPLE =====")
             print("Q:", doc["question"])
             print("GT answers:", doc["answers"]["text"])
-            print("is_impossible:", doc["is_impossible"])
             print("RAW PRED:", repr(raw_answer))
             print("PRED USED:", repr(pred_text))
 
