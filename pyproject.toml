@@ -12,7 +12,8 @@ authors = [
 ]
 dependencies = [
     "pandas",
-    "matplotlib"
+    "matplotlib",
+    "scipy"
 ]
 
 [tool.setuptools.packages.find]
