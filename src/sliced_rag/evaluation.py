@@ -79,7 +79,7 @@ def eval(args):
         args["sliced_model_path"],
         sparsity=args["sparsity"],
         token=None,
-        round_interval=args.get(["round_interval"], None),
+        round_interval=args.get("round_interval", None),
     )
 
     if hasattr(model_adapter.model, "tie_weights"):
