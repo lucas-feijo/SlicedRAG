@@ -32,7 +32,7 @@ def generate_hotpot_predictions_sliced(model_name, model_path, sparsity, dataset
     model_adapter, tokenizer  = hf_utils.load_sliced_model(
         model_name,
         model_path,
-        sparsity
+        sparsity=sparsity
     )
     model = model_adapter.model.to(device="cuda")
     return generate_hotpot_predictions(model, tokenizer, dataset_path, out_path, max_new_tokens, limit)
