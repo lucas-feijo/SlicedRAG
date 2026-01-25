@@ -1,4 +1,5 @@
 import json
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 from slicegpt import hf_utils
@@ -13,7 +14,14 @@ def build_context(example):
     return "\n".join(paragraphs)
 
 
-def generate_hotpot_predictions_sliced(model_name, model_path, sparsity, dataset_path, out_path=None, max_new_tokens=64, limit=None):
+def generate_hotpot_predictions_sliced(model_name,
+                                       model_path,
+                                       sparsity,
+                                       dataset_path,
+                                       out_path=None,
+                                       max_new_tokens=64,
+                                       limit=None, 
+                                       batch_size=8):
     """
     Generate predictions for the HotpotQA dataset using a sliced model.
 
@@ -35,10 +43,15 @@ def generate_hotpot_predictions_sliced(model_name, model_path, sparsity, dataset
         sparsity=sparsity
     )
     model = model_adapter.model.to(device="cuda")
-    return generate_hotpot_predictions(model, tokenizer, dataset_path, out_path, max_new_tokens, limit)
+    return generate_hotpot_predictions(model, tokenizer, dataset_path, out_path, max_new_tokens, limit, batch_size)
 
 
-def generate_hotpot_predictions_hf(model_name, dataset_path, out_path=None, max_new_tokens=64, limit=None):
+def generate_hotpot_predictions_hf(model_name,
+                                   dataset_path,
+                                   out_path=None,
+                                   max_new_tokens=64,
+                                   limit=None,
+                                   batch_size=8):
     """
     Generate predictions for the HotpotQA dataset using a Hugging Face model.
 
@@ -55,10 +68,16 @@ def generate_hotpot_predictions_hf(model_name, dataset_path, out_path=None, max_
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name).cuda()
-    return generate_hotpot_predictions(model, tokenizer, dataset_path, out_path, max_new_tokens, limit)
+    return generate_hotpot_predictions(model, tokenizer, dataset_path, out_path, max_new_tokens, limit, batch_size)
 
 
-def generate_hotpot_predictions(model, tokenizer, dataset_path, out_path=None, max_new_tokens=64, limit=None):
+def generate_hotpot_predictions(model,
+                                tokenizer,
+                                dataset_path,
+                                out_path=None,
+                                max_new_tokens=64,
+                                limit=None,
+                                batch_size=8):
     """
     Generate predictions for the HotpotQA dataset.
 
@@ -86,47 +105,63 @@ def generate_hotpot_predictions(model, tokenizer, dataset_path, out_path=None, m
 
     if limit is None:
         limit = len(examples)
+    limit = min(limit, len(examples))
 
-    for example in tqdm(examples[:limit]):
-        question_id  = example["_id"]
-        question_text = example["question"]
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
-        context_text = build_context(example)
+    for batch_start in tqdm(range(0, limit, batch_size)):
+        batch = examples[batch_start: batch_start + batch_size]
 
-        prompt = (
-            "Answer the question using the context."
-            "Reply only with a short answer."
-            f"Context: \n{context_text}\n\n"
-            f"Question: {question_text}\n\n"
-            "Answer: "
-        )
+        batch_ids = []
+        batch_prompts = []
+
+        for example in batch:
+            question_id  = example["_id"]
+            question_text = example["question"]
+
+            context_text = build_context(example)
+
+            prompt = (
+                "Answer the question using the context."
+                "Reply only with a short answer."
+                f"Context: \n{context_text}\n\n"
+                f"Question: {question_text}\n\n"
+                "Answer: "
+            )
+
+            batch_ids.append(question_id)
+            batch_prompts.append(prompt)
 
         model_inputs = tokenizer(
-            prompt,
+            batch_prompts,
             return_tensors="pt",
+            padding=True,
             truncation=True,
             max_length=tokenizer.model_max_length,
         ).to(model.device)
 
-        generated_ids = model.generate(
-            **model_inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False
-        )
+        with torch.no_grad():
+            generated_ids = model.generate(
+                **model_inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            )
 
-        generated_text = tokenizer.decode(
-            generated_ids[0][model_inputs["input_ids"].shape[-1]:],
-            skip_special_tokens=True
-        )
+        input_lengths = model_inputs["attention_mask"].sum(dim=1).tolist()
 
-        short_answer = generated_text.splitlines()[0].strip()
+        for i, question_id in enumerate(batch_ids):
+            answer_tokens = generated_ids[i][input_lengths[i]:]
+            generated_text = tokenizer.decode(answer_tokens, skip_special_tokens=True)
 
-        predictions["answer"][question_id] = short_answer
-        predictions["sp"][question_id] = []
+            short_answer = generated_text.splitlines()[0].strip()
+            predictions["answer"][question_id] = short_answer
+            predictions["sp"][question_id] = []
 
     if out_path is not None:
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(predictions, f)
+            json.dump(predictions, f, indent=2)
 
         print(f"Predictions saved to {out_path}")
     
