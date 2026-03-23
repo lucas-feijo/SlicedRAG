@@ -12,3 +12,8 @@ The directories are organized as follows:
 - [`/notebooks`](notebooks/): notebooks used to run the experiments on Google Colab
 - [`/data`](data/): model checkpoints, datasets
 - [`/SliceGPTModifications`](SliceGPTModifications): our fork of the original SliceGPT repo as a submodule
+
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
